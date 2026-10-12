@@ -1,0 +1,9 @@
+{
+  "name": "grass-lab",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx --yes serve -l 5173 ."
+  },
+  "description": "Stylized TSL grass lab (three.js r180 WebGPURenderer). No build step: three.js loads from jsDelivr via an import map."
+}

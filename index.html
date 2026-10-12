@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Grass Lab</title>
+<meta name="description" content="Stylized, flat-shaded grass field in three.js TSL (WebGPU with WebGL 2 fallback), ported from a Blender material.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M6 30 C8 20 7 12 4 4 C11 12 13 20 12 30 Z M14 30 C15 18 16 10 16 2 C18 10 19 18 19 30 Z M21 30 C21 20 23 12 28 6 C26 14 26 22 26 30 Z' fill='%235a9e3a'/%3E%3C/svg%3E">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.webgpu.js",
+    "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.webgpu.js",
+    "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.tsl.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+  }
+}
+</script>
+<script>
+  // Phone detection used for the mobile defaults (touch screen and a small screen)
+  window.GRASS_MOBILE = matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 820;
+
+  // Show any load error on screen instead of leaving "Loading…" up forever.
+  (function () {
+    function show(msg) {
+      var el = document.getElementById('status')
+      if (!el) return
+      el.hidden = false; el.dataset.state = 'error'
+      el.textContent = 'Grass Lab could not start: ' + msg
+    }
+    window.addEventListener('error', function (e) {
+      if (e.message) return show(e.message)
+      if (e.target && e.target.tagName === 'SCRIPT') show('could not load ' + e.target.src)
+    }, true)
+    window.addEventListener('unhandledrejection', function (e) { show(e.reason && e.reason.message ? e.reason.message : String(e.reason)) })
+    setTimeout(function () { if (!window.grassLab) { var el = document.getElementById('status'); if (el && !el.dataset.state) el.textContent += ' (still waiting after 20 s: the three.js scripts may be blocked)' } }, 20000)
+  })()
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: full-bleed viewport, instrument panel docked right (bottom sheet on phones). Single dark "field kit" look. */
+  :root {
+    color-scheme: dark;
+    --bg: #121611;
+    --panel: rgba(20, 26, 19, 0.86);
+    --panel-solid: #161c15;
+    --line: rgba(196, 220, 106, 0.14);
+    --fg: #e8ecdc;
+    --muted: #97a28a;
+    --accent: #c4dc6a;
+    --accent-ink: #1c2412;
+    --track: #2b3527;
+    --font-display: "Familjen Grotesk", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-display); overflow: hidden; }
+  .app { position: relative; height: 100%; }
+  #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+  .status {
+    position: absolute; inset: 0; display: grid; place-items: center; padding-inline: 16px;
+    font-family: var(--font-mono); font-size: 13px; color: var(--muted); text-align: center;
+  }
+  .status[data-state="error"] { color: #f1a08a; }
+  .status[hidden] { display: none; }
+
+  .hud {
+    position: absolute; left: 16px; top: calc(16px + env(safe-area-inset-top, 0px));
+    display: flex; flex-direction: column; gap: 6px; pointer-events: none;
+  }
+  .hud h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.01em; color: #1d2a17; text-shadow: 0 1px 0 rgba(255,255,255,0.35); }
+  .stats {
+    display: flex; flex-wrap: wrap; gap: 4px 12px; font-family: var(--font-mono); font-size: 11px;
+    color: #2a3a22; font-variant-numeric: tabular-nums;
+  }
+  .stats b { font-weight: 500; color: #121a0d; }
+
+  .panel {
+    position: absolute; top: 12px; right: 12px; bottom: 12px; width: 320px;
+    background: var(--panel); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--line); border-radius: 10px;
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .panel-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 12px 14px; border-bottom: 1px solid var(--line);
+  }
+  .panel-head h2 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .panel-body { overflow-y: auto; padding-block: 4px 12px; min-height: 0; flex: 1; }
+  .btn {
+    font: 500 12px var(--font-mono); color: var(--accent-ink); background: var(--accent);
+    border: 0; border-radius: 6px; padding: 7px 10px; cursor: pointer;
+  }
+  .btn.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+  .btn:focus-visible, input:focus-visible, summary:focus-visible, .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  details { border-bottom: 1px solid var(--line); }
+  summary {
+    list-style: none; cursor: pointer; padding: 11px 14px; display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 14px; font-weight: 600;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary small { font: 400 11px var(--font-mono); color: var(--muted); }
+  .rows { display: flex; flex-direction: column; gap: 10px; padding: 2px 14px 14px; }
+  .row { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; }
+  .row label { font-size: 12.5px; color: var(--fg); }
+  .row output { font: 400 11.5px var(--font-mono); color: var(--accent); font-variant-numeric: tabular-nums; }
+  .row input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); height: 18px; margin: 0; }
+  .row.color { grid-template-columns: 1fr auto auto; }
+  .row input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
+  .row input[type="color"] { width: 34px; height: 22px; border: 1px solid var(--line); border-radius: 4px; background: none; padding: 0; cursor: pointer; }
+  .hint { font-size: 11.5px; color: var(--muted); line-height: 1.45; margin: 0; }
+
+  .seg { display: flex; flex-wrap: wrap; gap: 4px; }
+  .seg button {
+    font: 400 11px var(--font-mono); color: var(--muted); background: var(--track); border: 0; border-radius: 5px;
+    padding: 6px 8px; cursor: pointer;
+  }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+
+  .toast { font: 400 11px var(--font-mono); color: var(--accent); }
+  .sheet-toggle { display: none; }
+
+  @media (max-width: 720px) {
+    .panel { top: auto; left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); width: auto; max-height: 48%; }
+    .panel[data-collapsed="true"] .panel-body { display: none; }
+    .sheet-toggle { display: inline-block; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+
+<style>[hidden]{display:none!important}</style>
+</head>
+<body>
+<div class="app">
+  <canvas id="view" aria-label="Grass field preview. Drag to orbit, scroll to zoom."></canvas>
+  <div class="status" id="status">Loading blade and normal map…</div>
+
+  <div class="hud">
+    <h1>Grass Lab</h1>
+    <div class="stats">
+      <span>blades <b id="stat-blades">–</b></span>
+      <span>tris <b id="stat-tris">–</b></span>
+      <span>verts <b id="stat-verts">–</b></span>
+      <span>fps <b id="stat-fps">–</b></span>
+      <span>ms <b id="stat-ms">–</b></span>
+      <span><b id="stat-backend">–</b></span>
+    </div>
+  </div>
+
+  <aside class="panel" id="panel" aria-label="Material controls">
+    <div class="panel-head">
+      <h2>Material</h2>
+      <div style="display:flex; gap:6px; align-items:center;">
+        <span class="toast" id="toast" aria-live="polite"></span>
+        <button class="btn ghost" id="reset" type="button">Reset</button>
+        <button class="btn" id="copy" type="button">Copy settings</button>
+        <button class="btn ghost sheet-toggle" id="sheet" type="button" aria-expanded="true">Hide</button>
+      </div>
+    </div>
+    <div class="panel-body" id="controls"></div>
+  </aside>
+</div>
+
+
+
+<script type="module">
+  import { DEFAULTS } from './js/grassMaterial.js'
+
+  // Panel schema: [group, note, rows]. Keys match DEFAULTS / field settings.
+  const FIELD_DEFAULTS = { density: 26000, scale: 1.06, sizeVariation: 0.55, align: 0.81 }
+  const GROUPS = [
+    ['Colour ramp', 'linear, like Blender', [
+      { key: 'shadowColor', label: 'Shadow stop', type: 'color' },
+      { key: 'midColor', label: 'Mid stop', type: 'color' },
+      { key: 'lightColor', label: 'Light stop', type: 'color' },
+      { key: 'rampShadowPos', label: 'Shadow stop position', min: 0, max: 1, step: 0.01 },
+      { key: 'rampMidPos', label: 'Mid stop position', min: 0, max: 1, step: 0.01 },
+      { key: 'rampLightPos', label: 'Light stop position', min: 0, max: 1.5, step: 0.01 },
+    ]],
+    ['Normal map', 'your node chain', [
+      { key: 'emptySize', label: 'Empty size, m (bigger = bigger blobs)', min: 1, max: 60, step: 0.5 },
+      { key: 'blur', label: 'Blur (Linear Light 0.05)', min: 0, max: 0.3, step: 0.005 },
+      { key: 'tangentStrength', label: 'Tangent Normal Map strength', min: 0, max: 2, step: 0.01 },
+      { key: 'worldBlend', label: 'World normal blend (Linear Light 0.075)', min: 0, max: 1, step: 0.005 },
+      { key: 'grain', label: 'Grain (literal noise jitter)', min: 0, max: 0.1, step: 0.001 },
+    ]],
+    ['Light', 'Diffuse → Shader to RGB', [
+      { key: 'sunAzimuth', label: 'Sun azimuth °', min: 0, max: 360, step: 1 },
+      { key: 'sunElevation', label: 'Sun elevation °', min: 5, max: 90, step: 1 },
+      { key: 'sunStrength', label: 'Sun strength', min: 0, max: 3, step: 0.01 },
+      { key: 'ambient', label: 'Sky light', min: 0, max: 1, step: 0.01 },
+    ]],
+    ['Extras', 'set to 0 to turn off', [
+      { key: 'rootColor', label: 'Roots and ground', type: 'color' },
+      { key: 'rootHeight', label: 'Root darkness reach', min: 0, max: 1, step: 0.01 },
+      { key: 'tintColor', label: 'Clump tint', type: 'color' },
+      { key: 'variation', label: 'Clump tint amount', min: 0, max: 1, step: 0.01 },
+      { key: 'bladeJitter', label: 'Per-clump jitter', min: 0, max: 0.3, step: 0.005 },
+      { key: 'backlight', label: 'Backlight glow', min: 0, max: 1.5, step: 0.01 },
+      { key: 'backlightColor', label: 'Backlight colour', type: 'color' },
+    ]],
+    ['Wind', 'vertex bend from the root', [
+      { key: 'windStrength', label: 'Strength (m at tip)', min: 0, max: 0.4, step: 0.005 },
+      { key: 'windSpeed', label: 'Speed', min: 0, max: 5, step: 0.05 },
+      { key: 'windDirection', label: 'Direction °', min: 0, max: 360, step: 1 },
+      { key: 'gustScale', label: 'Gust density (smaller = bigger)', min: 0.02, max: 0.5, step: 0.005 },
+      { key: 'flutter', label: 'Flutter', min: 0, max: 0.1, step: 0.001 },
+      { key: 'gustHighlight', label: 'Colour waves', min: 0, max: 1, step: 0.01 },
+    ]],
+    ['Quality', 'device settings, not in presets', [
+      { key: 'pixelRatio', label: 'Resolution cap (pixel ratio)', min: 0.5, max: 2, step: 0.25 },
+      { key: 'windOn', label: 'Wind (off removes the wind code, to measure its cost)', type: 'toggle' },
+    ]],
+    ['Field', 'instancing', [
+      { key: 'density', label: 'Blades', min: 1000, max: 60000, step: 500 },
+      { key: 'scale', label: 'Blade scale', min: 0.3, max: 1.8, step: 0.01 },
+      { key: 'sizeVariation', label: 'Size variation', min: 0, max: 1, step: 0.01 },
+      { key: 'align', label: 'Align to slope', min: 0, max: 1, step: 0.01 },
+    ]],
+  ]
+  const DEBUG = ['Final', 'Ramp input', 'Normals', 'Height', 'Gusts', 'Texture']
+
+  // Presets. "Tuned" is the saved look and loads by default; "Starter" is the
+  // material's built-in defaults. Reset returns to whichever preset is active.
+  const PRESETS = {
+    tuned: {
+      label: 'Tuned (saved)',
+      values: {
+        shadowColor: '#2b5230', midColor: '#5b8c34', lightColor: '#a6cb57',
+        rampShadowPos: 0.12, rampMidPos: 0.5, rampLightPos: 0.7,
+        sunAzimuth: 36, sunElevation: 42, sunStrength: 1, ambient: 0.08,
+        emptySize: 33, blur: 0.1, grain: 0, tangentStrength: 0.75, worldBlend: 0.65,
+        rootColor: '#1f3d22', rootHeight: 0.2, tintColor: '#e0c96a', variation: 0.45,
+        bladeJitter: 0.08, backlight: 0, backlightColor: '#f2f0a0',
+        windStrength: 0.18, windSpeed: 1.2, windDirection: 30, gustScale: 0.1, flutter: 0.018, gustHighlight: 0,
+        debugView: 0, density: 26000, scale: 1, sizeVariation: 0.55, align: 0.8,
+      },
+    },
+    starter: { label: 'Starter', values: { ...DEFAULTS, ...FIELD_DEFAULTS } },
+  }
+  // Mobile: the tuned look with about half the clumps (about 72K blades, inside the
+  // 50-100K phone budget), each a bit bigger so the hill stays covered.
+  PRESETS.mobile = { label: 'Mobile', values: { ...PRESETS.tuned.values, density: 12000, scale: 1.2 } }
+
+  const MOBILE = !!window.GRASS_MOBILE
+  let activePreset = MOBILE ? 'mobile' : 'tuned'
+  try { const saved = localStorage.getItem('grasslab-preset'); if (PRESETS[saved]) activePreset = saved } catch {}
+  let initial = { ...PRESETS[activePreset].values }
+  // quality settings belong to the device, so presets leave them alone
+  const state = { ...initial, pixelRatio: MOBILE ? 1.5 : 2, windOn: true }
+  const root = document.getElementById('controls')
+  const inputs = {}
+
+  const fmt = (v, step) => step >= 1 ? String(Math.round(v)) : Number(v).toFixed(step < 0.01 ? 3 : 2)
+
+  GROUPS.forEach(([title, note, rows], gi) => {
+    const d = document.createElement('details')
+    d.open = gi < 2
+    d.innerHTML = `<summary>${title} <small>${note}</small></summary><div class="rows"></div>`
+    const box = d.querySelector('.rows')
+    rows.forEach((r) => {
+      const row = document.createElement('div')
+      const id = 'c-' + r.key
+      if (r.type === 'toggle') {
+        row.className = 'row color'
+        row.innerHTML = `<label for="${id}">${r.label}</label><output for="${id}"></output><input type="checkbox" id="${id}">`
+      } else if (r.type === 'color') {
+        row.className = 'row color'
+        row.innerHTML = `<label for="${id}">${r.label}</label><output for="${id}"></output><input type="color" id="${id}">`
+      } else {
+        row.className = 'row'
+        row.innerHTML = `<label for="${id}">${r.label}</label><output for="${id}"></output><input type="range" id="${id}" min="${r.min}" max="${r.max}" step="${r.step}">`
+      }
+      const input = row.querySelector('input'), out = row.querySelector('output')
+      const label = (v) => r.type === 'toggle' ? (v ? 'on' : 'off') : r.type === 'color' ? String(v).toUpperCase() : fmt(v, r.step)
+      const show = (v) => { if (r.type === 'toggle') input.checked = !!v; else input.value = v; out.textContent = label(v) }
+      input.addEventListener('input', () => {
+        const v = r.type === 'toggle' ? input.checked : r.type === 'color' ? input.value : parseFloat(input.value)
+        state[r.key] = v
+        out.textContent = label(v)
+        window.grassLab?.apply(r.key, v)
+      })
+      inputs[r.key] = show
+      show(state[r.key])
+      box.appendChild(row)
+    })
+    root.appendChild(d)
+  })
+
+  // Debug views
+  const dbg = document.createElement('details')
+  dbg.open = true
+  dbg.innerHTML = `<summary>View <small>debug passes</small></summary><div class="rows"><div class="seg" role="group" aria-label="Debug view"></div><p class="hint">Ramp input is the Shader to RGB value before the Color Ramp. Texture is the raw normal-map lookup, so you can see the blob pattern and blur directly.</p></div>`
+  const seg = dbg.querySelector('.seg')
+  DEBUG.forEach((name, i) => {
+    const b = document.createElement('button')
+    b.type = 'button'; b.textContent = name; b.setAttribute('aria-pressed', String(i === 0))
+    b.addEventListener('click', () => {
+      seg.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', 'false'))
+      b.setAttribute('aria-pressed', 'true')
+      state.debugView = i
+      window.grassLab?.apply('debugView', i)
+    })
+    seg.appendChild(b)
+  })
+  root.prepend(dbg)
+
+  // Preset picker
+  const presetBox = document.createElement('details')
+  presetBox.open = true
+  presetBox.innerHTML = `<summary>Preset <small>Reset returns here</small></summary><div class="rows"><div class="seg" role="group" aria-label="Preset"></div></div>`
+  const presetSeg = presetBox.querySelector('.seg')
+  const applyAll = () => {
+    Object.entries(inputs).forEach(([k, show]) => { show(state[k]); window.grassLab?.apply(k, state[k]) })
+    window.grassLab?.apply('debugView', state.debugView || 0)
+    seg.querySelectorAll('button').forEach((x, i) => x.setAttribute('aria-pressed', String(i === (state.debugView || 0))))
+  }
+  Object.entries(PRESETS).forEach(([id, pr]) => {
+    const b = document.createElement('button')
+    b.type = 'button'; b.textContent = pr.label; b.dataset.preset = id
+    b.setAttribute('aria-pressed', String(id === activePreset))
+    b.addEventListener('click', () => {
+      activePreset = id
+      try { localStorage.setItem('grasslab-preset', id) } catch {}
+      presetSeg.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.preset === id)))
+      initial = { ...pr.values }
+      Object.assign(state, initial)
+      applyAll()
+      toast(pr.label)
+    })
+    presetSeg.appendChild(b)
+  })
+  // MSAA toggle (needs a reload because antialiasing is fixed when the renderer starts)
+  const msaaRow = document.createElement('div')
+  msaaRow.className = 'seg'
+  let msaaOn = !MOBILE
+  try { const v = localStorage.getItem('grasslab-msaa'); if (v !== null) msaaOn = v === '1' } catch {}
+  msaaRow.innerHTML = `<button type="button" id="msaa" aria-pressed="${msaaOn}">MSAA ${msaaOn ? 'on' : 'off'} · tap to switch (reloads)</button>`
+  msaaRow.querySelector('button').addEventListener('click', () => window.grassLab?.apply('msaa', !msaaOn))
+  presetBox.querySelector('.rows').appendChild(msaaRow)
+  root.prepend(presetBox)
+
+  // The scene may finish loading after this panel is built: push the preset into it then.
+  if (window.grassLab) applyAll()
+  else document.addEventListener('grasslab:ready', applyAll, { once: true })
+
+  const toast = (msg) => { const t = document.getElementById('toast'); t.textContent = msg; clearTimeout(toast.t); toast.t = setTimeout(() => (t.textContent = ''), 1800) }
+
+  document.getElementById('copy').addEventListener('click', async () => {
+    const text = JSON.stringify(state, null, 2)
+    try { await navigator.clipboard.writeText(text); toast('Copied') }
+    catch {
+      const ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('aria-label', 'Settings JSON')
+      ta.style.cssText = 'width:100%;height:160px;font:11px var(--font-mono);background:var(--panel-solid);color:var(--fg);border:1px solid var(--line)'
+      root.prepend(ta); ta.select(); toast('Select and copy')
+    }
+  })
+  document.getElementById('reset').addEventListener('click', () => {
+    Object.assign(state, initial)
+    applyAll()
+    toast('Reset to ' + PRESETS[activePreset].label)
+  })
+  const panel = document.getElementById('panel'), sheet = document.getElementById('sheet')
+  // phones start with the panel collapsed so the grass gets the screen
+  if (MOBILE || matchMedia('(max-width: 720px)').matches) { panel.dataset.collapsed = 'true'; sheet.textContent = 'Show'; sheet.setAttribute('aria-expanded', 'false') }
+  sheet.addEventListener('click', () => {
+    const c = panel.dataset.collapsed !== 'true'
+    panel.dataset.collapsed = String(c); sheet.textContent = c ? 'Show' : 'Hide'; sheet.setAttribute('aria-expanded', String(!c))
+  })
+</script>
+<script type="module" src="./js/main.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,43 @@
+# Deploys the lab to GitHub Pages on every push to main.
+# No build step: this only copies the files the page needs at runtime into _site,
+# leaving out the Blender sources (assets/source) and the reference screenshots.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect site files
+        run: |
+          mkdir -p _site/assets
+          cp index.html .nojekyll _site/
+          cp -r js presets v1 _site/
+          cp assets/grass_normal.png _site/assets/
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
