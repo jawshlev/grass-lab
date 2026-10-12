@@ -197,19 +197,31 @@
     ['Extras', 'set to 0 to turn off', [
       { key: 'rootColor', label: 'Roots and ground', type: 'color' },
       { key: 'rootHeight', label: 'Root darkness reach', min: 0, max: 1, step: 0.01 },
+      { key: 'groundFill', label: 'Ground fill (gaps look like grass)', min: 0, max: 1, step: 0.01 },
       { key: 'tintColor', label: 'Clump tint', type: 'color' },
       { key: 'variation', label: 'Clump tint amount', min: 0, max: 1, step: 0.01 },
       { key: 'bladeJitter', label: 'Per-clump jitter', min: 0, max: 0.3, step: 0.005 },
       { key: 'backlight', label: 'Backlight glow', min: 0, max: 1.5, step: 0.01 },
       { key: 'backlightColor', label: 'Backlight colour', type: 'color' },
     ]],
-    ['Wind', 'vertex bend from the root', [
+    ['Wind', 'bend = strength × (lean + wave + noise)', [
       { key: 'windStrength', label: 'Strength (m at tip)', min: 0, max: 0.4, step: 0.005 },
-      { key: 'windSpeed', label: 'Speed', min: 0, max: 5, step: 0.05 },
       { key: 'windDirection', label: 'Direction °', min: 0, max: 360, step: 1 },
-      { key: 'gustScale', label: 'Gust density (smaller = bigger)', min: 0.02, max: 0.5, step: 0.005 },
-      { key: 'flutter', label: 'Flutter', min: 0, max: 0.1, step: 0.001 },
+      { key: 'windLean', label: 'Lean (constant)', min: 0, max: 1, step: 0.01 },
+      { key: 'normalTilt', label: 'Light follows bend', min: 0, max: 3, step: 0.05 },
       { key: 'gustHighlight', label: 'Colour waves', min: 0, max: 1, step: 0.01 },
+    ]],
+    ['Wind wave', 'slow, big, smooth', [
+      { key: 'waveStrength', label: 'Strength', min: 0, max: 2, step: 0.01 },
+      { key: 'waveSpeed', label: 'Speed (m/s)', min: 0, max: 6, step: 0.05 },
+      { key: 'waveScale', label: 'Scale (smaller = bigger waves)', min: 0.005, max: 0.2, step: 0.005 },
+      { key: 'waveStretch', label: 'Stretch across wind (tiling X)', min: 0.1, max: 1, step: 0.01 },
+    ]],
+    ['Wind noise', 'fast, small, choppy', [
+      { key: 'noiseStrength', label: 'Strength', min: 0, max: 1, step: 0.01 },
+      { key: 'noiseSpeed', label: 'Speed (m/s)', min: 0, max: 10, step: 0.1 },
+      { key: 'noiseScale', label: 'Scale (smaller = bigger ripples)', min: 0.05, max: 1, step: 0.01 },
+      { key: 'flutter', label: 'Flutter (per clump)', min: 0, max: 0.1, step: 0.001 },
     ]],
     ['Quality', 'device settings, not in presets', [
       { key: 'pixelRatio', label: 'Resolution cap (pixel ratio)', min: 0.5, max: 2, step: 0.25 },
@@ -233,21 +245,26 @@
         shadowColor: '#2b5230', midColor: '#5b8c34', lightColor: '#a6cb57',
         rampShadowPos: 0.12, rampMidPos: 0.5, rampLightPos: 0.7,
         sunAzimuth: 36, sunElevation: 42, sunStrength: 1, ambient: 0.08,
-        emptySize: 33, blur: 0.1, grain: 0, tangentStrength: 0.75, worldBlend: 0.65,
+        emptySize: 33, blur: 0.1, grain: 0, tangentStrength: 0.4, worldBlend: 0.65,
         rootColor: '#1f3d22', rootHeight: 0.2, tintColor: '#e0c96a', variation: 0.45,
         bladeJitter: 0.08, backlight: 0, backlightColor: '#f2f0a0',
-        windStrength: 0.18, windSpeed: 1.2, windDirection: 30, gustScale: 0.1, flutter: 0.018, gustHighlight: 0,
+        groundFill: 0,
+        windStrength: 0.1, windDirection: 48, windLean: 0.6, normalTilt: 1, gustHighlight: 0,
+        waveStrength: 1, waveSpeed: 1.5, waveScale: 0.06, waveStretch: 0.31,
+        noiseStrength: 0.25, noiseSpeed: 0.8, noiseScale: 0.25, flutter: 0.02,
         debugView: 0, density: 26000, scale: 1, sizeVariation: 0.55, align: 0.8,
       },
     },
-    starter: { label: 'Starter', values: { ...DEFAULTS, ...FIELD_DEFAULTS } },
   }
-  // Mobile: the tuned look with about half the clumps (about 72K blades, inside the
+  // Tuned + waves: the tuned look with grass-coloured gaps
+  PRESETS.waves = { label: 'Tuned + waves', values: { ...PRESETS.tuned.values, groundFill: 0.55 } }
+  PRESETS.starter = { label: 'Starter', values: { ...DEFAULTS, ...FIELD_DEFAULTS } }
+  // Mobile: Tuned + waves with about half the clumps (about 72K blades, inside the
   // 50-100K phone budget), each a bit bigger so the hill stays covered.
-  PRESETS.mobile = { label: 'Mobile', values: { ...PRESETS.tuned.values, density: 12000, scale: 1.2 } }
+  PRESETS.mobile = { label: 'Mobile', values: { ...PRESETS.waves.values, density: 12000, scale: 1.2 } }
 
   const MOBILE = !!window.GRASS_MOBILE
-  let activePreset = MOBILE ? 'mobile' : 'tuned'
+  let activePreset = MOBILE ? 'mobile' : 'waves'
   try { const saved = localStorage.getItem('grasslab-preset'); if (PRESETS[saved]) activePreset = saved } catch {}
   let initial = { ...PRESETS[activePreset].values }
   // quality settings belong to the device, so presets leave them alone
@@ -350,15 +367,37 @@
 
   const toast = (msg) => { const t = document.getElementById('toast'); t.textContent = msg; clearTimeout(toast.t); toast.t = setTimeout(() => (t.textContent = ''), 1800) }
 
-  document.getElementById('copy').addEventListener('click', async () => {
-    const text = JSON.stringify(state, null, 2)
+  // Copy to the clipboard; if that's blocked, show the text in a box to copy by hand
+  const copyText = async (text, what) => {
     try { await navigator.clipboard.writeText(text); toast('Copied') }
     catch {
-      const ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('aria-label', 'Settings JSON')
+      const ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('aria-label', what)
       ta.style.cssText = 'width:100%;height:160px;font:11px var(--font-mono);background:var(--panel-solid);color:var(--fg);border:1px solid var(--line)'
       root.prepend(ta); ta.select(); toast('Select and copy')
     }
-  })
+  }
+  document.getElementById('copy').addEventListener('click', () => copyText(JSON.stringify(state, null, 2), 'Settings JSON'))
+
+  // Camera grabber: live position / target readout, copied in the same shape as
+  // the CAMERA constant in js/main.js, so it can be pasted there as the default view.
+  const camBox = document.createElement('details')
+  camBox.open = true
+  camBox.innerHTML = `<summary>Camera <small>set the default view</small></summary><div class="rows"><p class="hint" id="cam-read">Waiting for the scene…</p><div class="seg"><button type="button" id="cam-copy">Copy camera</button></div><p class="hint">Orbit to the view you want, copy it, and paste it into CAMERA in js/main.js.</p></div>`
+  root.appendChild(camBox)
+  const camString = () => {
+    const { camera, controls } = window.grassLab
+    const r = (v) => '[' + v.toArray().map((n) => +n.toFixed(2)).join(', ') + ']'
+    return `{ position: ${r(camera.position)}, target: ${r(controls.target)} }`
+  }
+  const hookCamera = () => {
+    const read = document.getElementById('cam-read')
+    const update = () => { read.textContent = camString() }
+    window.grassLab.controls.addEventListener('change', update)
+    update()
+    document.getElementById('cam-copy').addEventListener('click', () => copyText(camString(), 'Camera'))
+  }
+  if (window.grassLab) hookCamera()
+  else document.addEventListener('grasslab:ready', hookCamera, { once: true })
   document.getElementById('reset').addEventListener('click', () => {
     Object.assign(state, initial)
     applyAll()

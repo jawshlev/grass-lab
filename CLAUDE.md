@@ -38,7 +38,7 @@ path relative (no leading `/`), because the site is served from `/<repo>/`.
 | `js/grassPiece.js` | GrassPiece clump geometry, inlined as arrays (see "Why the geometry is inlined") |
 | `assets/grass_normal.png` | Normal map used at runtime (1024², downsized) |
 | `assets/source/` | Originals: `grassPiece.glb` from Blender (it also embeds the 2048² normal map) and the full-res normal map |
-| `presets/*.json` | Saved settings: `tuned` (default), `mobile`, `v1` |
+| `presets/*.json` | Saved settings: `tuned`, `tuned-waves` (default), `mobile`, `v1` (v1 uses the old wind keys) |
 | `reference/` | Blender node screenshots, the tutorial's wind nodes, and the look target |
 | `v1/` | Frozen copy of the first shader with its settings. **Don't edit it unless the owner asks.** |
 
@@ -72,11 +72,26 @@ scene lights and shadows are ignored.
 
 ### Wind (vertex stage)
 
-A gust field (noise texture R channel) scrolls along `windDir` and is sampled
-at each clump's **root**, so neighbours move together. Chop comes from the G
-channel, plus a per-clump sine flutter. The bend weight is `h²` (h = height on
-the blade, 0 at the root), with a small tip drop. The **Wind** switch rebuilds
-the shader with no wind code at all (`set.windOn(false)`), for measuring cost.
+Two layers, after the tutorial's geometry nodes (`reference/tutorial-wind-geometry-nodes.png`):
+`bend = windStrength × (windLean + wave + noise) + flutter`.
+
+- Both layers are sampled at each clump's **root**, so neighbours move together,
+  in a wind frame (`along` = downwind, `across` = sideways). `waveStretch` (< 1)
+  squashes `across`, so the noise forms long bands lying across the wind. That's
+  the tutorial's tiling (0.35, 1, 1).
+- **Wave:** slow, big and smooth. R channel, `smoothstep` into soft crests, 0..1.
+- **Noise:** fast, small and choppy. Two G-channel reads drifting in different
+  directions, averaged, so it churns instead of sliding. About −1..1. The per-clump
+  sine `flutter` sits on top.
+- Bend weight is `h²` (h = height on the blade, 0 at the root), with a small tip
+  drop. It's a bend, not the tutorial's rigid instance rotation.
+- **Light follows bend (`normalTilt`):** the clump's lighting normal tilts downwind
+  with the *moving* part of the bend (not the constant lean, so tuned colours don't
+  shift). Without it, blades move but the shading never changes and waves barely
+  read. In Blender, rotating instances rotates their normals too.
+- The **Gusts** debug view and **Colour waves** follow the wave layer only.
+- The **Wind** switch rebuilds the shader with no wind code at all
+  (`set.windOn(false)`), for measuring cost. With wind on, there are 3 noise reads per vertex.
 
 ## Gotchas (learned the hard way)
 
@@ -88,13 +103,15 @@ the shader with no wind code at all (`set.windOn(false)`), for measuring cost.
 - **Blender is Z-up, three.js is Y-up.** Watch any texture-space or world-normal conversion.
 - **Why the geometry is inlined.** The lab was published as a claude.ai artifact, whose sandbox blocked GLTFLoader from fetching the glb's `data:` buffer, so the page hung on "Loading". In a normal project, load `assets/source/grassPiece.glb` (e.g. `useGLTF`), then delete its `normal` and `uv` attributes and run `mergeVertices`: 144 → 96 vertices per clump. The material doesn't read either attribute.
 - **Noise is a texture, not procedural.** `makeNoiseTexture()` builds a 128² tiling RGBA fbm (R gust, G chop, B clump tint, A grain). It replaced `mx_noise_float` calls for mobile. Texture reads in the vertex stage use `.level(0)`.
-- **The ground uses a cheap shader.** At height 0 the grass chain always ends up as the root colour, so the ground only computes lambert × root colour.
+- **The ground hides the gaps between clumps.** Plain root colour made every gap a dark hole, which was worst at mobile density. The ground now runs a cheap copy of the grass chain (the same blurred normal-map blobs and ramp, skipping the per-clump tangent map, one texture read) and mixes it with the root colour by `groundFill` (0 = old dark ground).
+- **Scatter is an R2 low-discrepancy sequence**, not plain random (`buildField`). Every prefix is evenly spread, so the density slider (first N spots) never opens bald patches. A small jitter hides the lattice. A shuffled jittered grid would *not* work: a random subset of a grid is random again.
 - **Renderer init** is raced against an 8 s timeout and falls back to WebGL 2 (some embedded frames never answer the WebGPU adapter request).
 
 ## Presets and settings
 
-- Panel presets: **Tuned (saved)**, the default and the owner's chosen look; **Starter** (`DEFAULTS`); **Mobile** (Tuned with density 12000, scale 1.2). Reset returns to the active preset.
+- Panel presets: **Tuned (saved)**, the owner's chosen look (with `groundFill` 0, the old dark ground); **Tuned + waves**, the default (Tuned with `groundFill` 0.55); **Starter** (`DEFAULTS`); **Mobile** (Tuned + waves with density 12000, scale 1.2). All of them use the two-layer wind. Reset returns to the active preset.
 - "Copy settings" puts the full state on the clipboard as JSON (same keys as `presets/*.json`).
+- **Default camera:** `CAMERA` (position + orbit target) at the top of `js/main.js`. The panel's **Camera** section shows the live values, and **Copy camera** copies them in the same shape, ready to paste there.
 - `localStorage`: `grasslab-preset` (last chosen preset), `grasslab-msaa` (`'1'`/`'0'`).
 - Quality settings aren't part of presets: the pixel-ratio cap and the wind switch.
 
@@ -102,7 +119,7 @@ the shader with no wind code at all (`set.windOn(false)`), for measuring cost.
 
 - `window.GRASS_MOBILE` = coarse pointer and short screen side < 820. On phones: the Mobile preset, pixel ratio ≤ 1.5, MSAA off (changing it reloads the page), panel collapsed, and the camera FOV widened in portrait to keep the horizontal framing.
 - Budget reference (CK42BB procedural-grass skill): 50–100K blades on mobile. One clump ≈ 6 blades, so about 12K clumps.
-- The owner measured **~30 fps on their phone**. It's still unconfirmed whether that's a 30 fps cap (Low Power Mode / battery saver) or real GPU load. Test: resolution cap 0.75 and 4,000 clumps; if it's still exactly 30, it's a cap.
+- The phone runs at **60 fps with Low Power Mode off**. The ~30 fps measured earlier was the Low Power Mode cap, not GPU load.
 
 ## Tried and rejected
 
@@ -112,6 +129,7 @@ the shader with no wind code at all (`set.windOn(false)`), for measuring cost.
 ## Possible next steps
 
 - **Lower-poly far clump:** a simpler GrassPiece from Blender (e.g. 3 blades) for phones or for distance. Saves vertices everywhere on screen.
+- **Phone anti-aliasing (bookmarked):** jagged edges were seen once on a phone but were fine after a refresh. If they come back, try MSAA on with pixel ratio about 1.25 (close to free on tile-based GPUs), or an FXAA pass (`three/addons/tsl/display/FXAANode.js`).
 - **Tiles** (e.g. 4×4 InstancedMeshes) for frustum culling when zoomed in.
 - **Port to R3F:** `<Canvas>` with a WebGPURenderer `gl` factory; `createGrassMaterials` in a `useMemo`; fill the instanced attributes as `buildField` / `writeTransforms` / `upload` do in `main.js`; expose uniforms to a leva panel.
 

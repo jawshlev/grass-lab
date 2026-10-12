@@ -11,6 +11,10 @@ import { createGrassMaterials, DEFAULTS } from './grassMaterial.js'
 
 const MAX_BLADES = 60000
 const FIELD = { rx: 8.5, rz: 6.0 } // ellipse radii of the grassy mound, metres
+// Default view. The camera looks from `position` at `target` (the orbit centre),
+// so these two points fully set its orientation. Get new values with the panel's
+// Camera > "Copy camera" button and paste them here.
+const CAMERA = { position: [3.88, 14.95, 16.22], target: [1.43, 1.15, -0.13] }
 
 // ---------------------------------------------------------------------------
 // Terrain: an elongated mound with gentle rolls (analytic, so the scatter can
@@ -54,9 +58,20 @@ function seededRandom(seed) {
 function buildField(bladeGeometry) {
   const rnd = seededRandom(1234)
   const spots = []
+  // Positions come from the R2 low-discrepancy sequence instead of plain random.
+  // Random scatter clumps up and leaves bald patches; R2 fills the area evenly, and
+  // EVERY prefix of it is even too, so the density slider (first N spots) never
+  // opens holes. A little jitter (half the full-density spacing) hides its lattice.
+  const g = 1.32471795724474602596 // plastic number
+  const a1 = 1 / g, a2 = 1 / (g * g)
+  const jitter = 0.5 * Math.sqrt(0.8 / MAX_BLADES)
+  let n = 0
   while (spots.length < MAX_BLADES) {
-    const x = (rnd() * 2 - 1) * FIELD.rx * 1.12
-    const z = (rnd() * 2 - 1) * FIELD.rz * 1.12
+    n++
+    const u = (0.5 + n * a1 + (rnd() - 0.5) * jitter) % 1
+    const v = (0.5 + n * a2 + (rnd() - 0.5) * jitter) % 1
+    const x = (u * 2 - 1) * FIELD.rx * 1.12
+    const z = (v * 2 - 1) * FIELD.rz * 1.12
     const e = fieldEdge(x, z)
     // thin out toward the edge so the silhouette is tufty, not a hard cut
     if (e > 1 || (e > 0.82 && rnd() > (1 - e) / 0.18)) continue
@@ -155,9 +170,9 @@ async function start() {
   scene.fogNode = fog(skyHorizon, rangeFogFactor(30, 95))
 
   const camera = new THREE.PerspectiveCamera(38, 1, 0.05, 200)
-  camera.position.set(15, 7.5, -19) // sun from the side shows the clumps best
+  camera.position.set(...CAMERA.position)
   const controls = new OrbitControls(camera, canvas)
-  controls.target.set(0, 0.8, 0)
+  controls.target.set(...CAMERA.target)
   controls.enableDamping = true
   controls.maxPolarAngle = Math.PI * 0.49
   controls.minDistance = 1.5
