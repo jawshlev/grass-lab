@@ -15,6 +15,7 @@ const FIELD = { rx: 8.5, rz: 6.0 } // ellipse radii of the grassy mound, metres
 // so these two points fully set its orientation. Get new values with the panel's
 // Camera > "Copy camera" button and paste them here.
 const CAMERA = { position: [3.88, 14.95, 16.22], target: [1.43, 1.15, -0.13] }
+const CAMERA_MOBILE = { position: [1.95, 20.27, 13.18], target: [0.32, 2.87, -1.31] } // phones (GRASS_MOBILE)
 
 // ---------------------------------------------------------------------------
 // Terrain: an elongated mound with gentle rolls (analytic, so the scatter can
@@ -141,9 +142,10 @@ async function start() {
 
   status.textContent = 'Starting renderer…'
   // add #webgl to the URL to force the WebGL 2 backend (handy for comparing)
-  // Phones: MSAA off by default (toggle in the Quality panel; the choice reloads the page)
+  // MSAA on by default everywhere: on phones it improves quality a lot (toggle in the
+  // Preset panel; the choice reloads the page)
   const mobile = !!window.GRASS_MOBILE
-  let msaa = !mobile
+  let msaa = true
   try { const v = localStorage.getItem('grasslab-msaa'); if (v !== null) msaa = v === '1' } catch {}
   const makeRenderer = async (forceWebGL) => {
     const r = new THREE.WebGPURenderer({ canvas, antialias: msaa, forceWebGL })
@@ -170,9 +172,10 @@ async function start() {
   scene.fogNode = fog(skyHorizon, rangeFogFactor(30, 95))
 
   const camera = new THREE.PerspectiveCamera(38, 1, 0.05, 200)
-  camera.position.set(...CAMERA.position)
+  const view = mobile ? CAMERA_MOBILE : CAMERA
+  camera.position.set(...view.position)
   const controls = new OrbitControls(camera, canvas)
-  controls.target.set(...CAMERA.target)
+  controls.target.set(...view.target)
   controls.enableDamping = true
   controls.maxPolarAngle = Math.PI * 0.49
   controls.minDistance = 1.5

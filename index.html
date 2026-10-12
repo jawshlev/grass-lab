@@ -354,7 +354,7 @@
   // MSAA toggle (needs a reload because antialiasing is fixed when the renderer starts)
   const msaaRow = document.createElement('div')
   msaaRow.className = 'seg'
-  let msaaOn = !MOBILE
+  let msaaOn = true
   try { const v = localStorage.getItem('grasslab-msaa'); if (v !== null) msaaOn = v === '1' } catch {}
   msaaRow.innerHTML = `<button type="button" id="msaa" aria-pressed="${msaaOn}">MSAA ${msaaOn ? 'on' : 'off'} · tap to switch (reloads)</button>`
   msaaRow.querySelector('button').addEventListener('click', () => window.grassLab?.apply('msaa', !msaaOn))

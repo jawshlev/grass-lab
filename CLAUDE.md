@@ -111,13 +111,13 @@ Two layers, after the tutorial's geometry nodes (`reference/tutorial-wind-geomet
 
 - Panel presets: **Tuned (saved)**, the owner's chosen look (with `groundFill` 0, the old dark ground); **Tuned + waves**, the default (Tuned with `groundFill` 0.55); **Starter** (`DEFAULTS`); **Mobile** (Tuned + waves with density 12000, scale 1.2). All of them use the two-layer wind. Reset returns to the active preset.
 - "Copy settings" puts the full state on the clipboard as JSON (same keys as `presets/*.json`).
-- **Default camera:** `CAMERA` (position + orbit target) at the top of `js/main.js`. The panel's **Camera** section shows the live values, and **Copy camera** copies them in the same shape, ready to paste there.
+- **Default camera:** `CAMERA` (position + orbit target) at the top of `js/main.js`, and `CAMERA_MOBILE` for phones. The panel's **Camera** section shows the live values, and **Copy camera** copies them in the same shape, ready to paste there.
 - `localStorage`: `grasslab-preset` (last chosen preset), `grasslab-msaa` (`'1'`/`'0'`).
 - Quality settings aren't part of presets: the pixel-ratio cap and the wind switch.
 
 ## Mobile
 
-- `window.GRASS_MOBILE` = coarse pointer and short screen side < 820. On phones: the Mobile preset, pixel ratio ≤ 1.5, MSAA off (changing it reloads the page), panel collapsed, and the camera FOV widened in portrait to keep the horizontal framing.
+- `window.GRASS_MOBILE` = coarse pointer and short screen side < 820. On phones: the Mobile preset, pixel ratio ≤ 1.5, MSAA on like desktop (it improves quality a lot; changing it reloads the page), its own default view (`CAMERA_MOBILE` in `js/main.js`), panel collapsed, and the camera FOV widened in portrait to keep the horizontal framing.
 - Budget reference (CK42BB procedural-grass skill): 50–100K blades on mobile. One clump ≈ 6 blades, so about 12K clumps.
 - The phone runs at **60 fps with Low Power Mode off**. The ~30 fps measured earlier was the Low Power Mode cap, not GPU load.
 
@@ -129,7 +129,6 @@ Two layers, after the tutorial's geometry nodes (`reference/tutorial-wind-geomet
 ## Possible next steps
 
 - **Lower-poly far clump:** a simpler GrassPiece from Blender (e.g. 3 blades) for phones or for distance. Saves vertices everywhere on screen.
-- **Phone anti-aliasing (bookmarked):** jagged edges were seen once on a phone but were fine after a refresh. If they come back, try MSAA on with pixel ratio about 1.25 (close to free on tile-based GPUs), or an FXAA pass (`three/addons/tsl/display/FXAANode.js`).
 - **Tiles** (e.g. 4×4 InstancedMeshes) for frustum culling when zoomed in.
 - **Port to R3F:** `<Canvas>` with a WebGPURenderer `gl` factory; `createGrassMaterials` in a `useMemo`; fill the instanced attributes as `buildField` / `writeTransforms` / `upload` do in `main.js`; expose uniforms to a leva panel.
 
